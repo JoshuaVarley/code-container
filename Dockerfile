@@ -71,39 +71,19 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && rm /tmp/dotnet-install.sh
 ENV PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
 
-# Install Zig (master / nightly) — pulls the latest tarball from ziglang.org
-RUN ARCH=$(uname -m) \
-    && case "$ARCH" in \
-         x86_64)  ZIG_ARCH="x86_64-linux" ;; \
-         aarch64) ZIG_ARCH="aarch64-linux" ;; \
-         *) echo "Unsupported architecture for zig: $ARCH" && exit 1 ;; \
-       esac \
-    && ZIG_URL=$(curl -fsSL https://ziglang.org/download/index.json \
-        | python3 -c "import sys, json; print(json.load(sys.stdin)['master']['$ZIG_ARCH']['tarball'])") \
-    && curl -fsSL "$ZIG_URL" -o /tmp/zig.tar.xz \
-    && mkdir -p /opt/zig \
-    && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 \
-    && ln -sf /opt/zig/zig /usr/local/bin/zig \
-    && rm /tmp/zig.tar.xz
-
-# Install ZLS (Zig Language Server) — matched to the installed Zig version
-# via the official version-selector API at releases.zigtools.org
-RUN ARCH=$(uname -m) \
-    && case "$ARCH" in \
-         x86_64)  ZLS_ARCH="x86_64-linux" ;; \
-         aarch64) ZLS_ARCH="aarch64-linux" ;; \
-         *) echo "Unsupported architecture for zls: $ARCH" && exit 1 ;; \
-       esac \
-    && ZIG_VERSION=$(zig version) \
-    && ZLS_URL=$(curl -fsSL "https://releases.zigtools.org/v1/zls/select-version?zig_version=${ZIG_VERSION}&compatibility=only-runtime" \
-        | python3 -c "import sys, json; d=json.load(sys.stdin); \
-sys.exit('zls select-version error: ' + d['message']) if 'message' in d else print(d['$ZLS_ARCH']['tarball'])") \
-    && curl -fsSL "$ZLS_URL" -o /tmp/zls.tar.xz \
-    && mkdir -p /opt/zls \
-    && tar -xJf /tmp/zls.tar.xz -C /opt/zls \
-    && ZLS_BIN=$(find /opt/zls -type f -name zls -executable | head -n1) \
-    && ln -sf "$ZLS_BIN" /usr/local/bin/zls \
-    && rm /tmp/zls.tar.xz
+# Install zvm (Zig Version Manager — https://github.com/tristanisham/zvm).
+# Users pick a Zig/ZLS version at runtime inside the container, e.g.:
+#   zvm i master              # install Zig master
+#   zvm i --zls master        # install the matching ZLS
+#   zvm i 0.13.0              # install a specific tagged release
+#   zvm use 0.13.0            # switch the active version
+# Active zig/zls are symlinked into $ZVM_PATH/bin, the zvm binary itself
+# lives in $ZVM_PATH/self — both are added to PATH below.
+ENV ZVM_PATH=/root/.zvm
+ENV PATH="${ZVM_PATH}/bin:${ZVM_PATH}/self:${PATH}"
+RUN curl -fsSL https://raw.githubusercontent.com/tristanisham/zvm/master/install.sh | bash \
+    && echo 'export ZVM_PATH="$HOME/.zvm"' >> /root/.bashrc \
+    && echo 'export PATH="$ZVM_PATH/bin:$ZVM_PATH/self:$PATH"' >> /root/.bashrc
 
 # Set working directory to root home
 WORKDIR /root

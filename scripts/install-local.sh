@@ -30,6 +30,25 @@ echo "==> Linking local copy as global \`container\`"
 npm link
 
 echo ""
+echo "==> Configuring persistent zvm versions mount"
+APPDATA_DIR="$HOME/.code-container"
+ZVM_HOST_DIR="$APPDATA_DIR/zvm-versions"
+MOUNTS_FILE="$APPDATA_DIR/MOUNTS.txt"
+MOUNT_LINE="$ZVM_HOST_DIR:/root/.zvm/versions"
+
+mkdir -p "$ZVM_HOST_DIR"
+touch "$MOUNTS_FILE"
+
+if grep -Fxq "$MOUNT_LINE" "$MOUNTS_FILE"; then
+  echo "    zvm versions mount already present in $MOUNTS_FILE"
+else
+  printf '\n# zvm: persist installed Zig versions across containers\n%s\n' "$MOUNT_LINE" >> "$MOUNTS_FILE"
+  echo "    Added zvm versions mount: $MOUNT_LINE"
+  echo "    Host dir: $ZVM_HOST_DIR"
+  echo "    Note: existing containers must be \`container remove\`d for the mount to take effect."
+fi
+
+echo ""
 RESOLVED="$(command -v container || true)"
 if [ -n "$RESOLVED" ]; then
   echo "Done. \`container\` resolves to: $RESOLVED"
