@@ -106,6 +106,15 @@ Add shared volumes by editing `~/.code-container/MOUNTS.txt`:
 /absolute/path/on/host:/root/target-path:ro
 ```
 
+On **Windows**, write the host path with a drive letter and forward slashes — that's the form Docker's mount parser accepts:
+
+```
+C:/Users/you/some/dir:/root/target-path
+C:/Users/you/some/dir:/root/target-path:ro
+```
+
+Backslashes are not accepted. The CLI's built-in core mounts handle this normalization automatically; you only need to remember it when editing `MOUNTS.txt` by hand.
+
 **After modifying:** No rebuild needed. However, mounts will only be applied to new containers. Inform users that old containers may have to be `container remove` and restarted.
 
 ### Add Docker Flags (DOCKER_FLAGS.txt)

@@ -10,8 +10,9 @@
 
 ### Prerequisites
 
-- **Docker** — [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine
-- **A POSIX-Compatible System** — Linux, macOS, WSL
+- **Docker** — [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine. On Windows, Docker Desktop must be in **Linux container** mode (the default).
+- **Operating system** — Linux, macOS, or Windows. WSL2 is also supported. The CLI runs natively on each.
+- **Node.js** — required by the CLI (any LTS).
 
 ### Installation
 
@@ -46,8 +47,8 @@ You're done 🎉; `container` is now ready to use.
 > ```bash
 > # Exit all containers & save important work...
 > npm install -g code-container
-> bash scripts/migrate.sh     # Migrate configs over to ~/.code-container/configs
-> bash scripts/cleanup.sh     # Optional: Cleanup config files
+> node scripts/migrate.js     # Migrate configs over to ~/.code-container/configs
+> node scripts/cleanup.js     # Optional: Cleanup config files
 > container build
 > ```
 > Note: Ensure that all work is saved and the container is ready for deletion. Containers from the previous version are not compatible with containers from the current version.

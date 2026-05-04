@@ -6,6 +6,7 @@ import { printInfo, printError } from "./utils";
 import { APPDATA_DIR, USER_DOCKERFILE_PATH } from "./config";
 import { loadMounts } from "./mounts";
 import { loadFlags, loadRunFlags } from "./flags";
+import { bindMount } from "./paths";
 
 export const IMAGE_NAME = "code-container";
 export const IMAGE_TAG = "latest";
@@ -26,14 +27,15 @@ export function checkDocker(): void {
 
 export function getMounts(projectPath: string, projectName: string): string[] {
   const mounts: string[] = [];
-  mounts.push(`${projectPath}:/root/${projectName}`);
+  mounts.push(bindMount(projectPath, `/root/${projectName}`));
   const fileMounts = loadMounts();
   mounts.push(...fileMounts);
   return mounts;
 }
 
 export function generateContainerName(projectPath: string): string {
-  const normalizedPath = projectPath.replace(/\/$/, "");
+  // Strip a trailing native separator (forward slash on POSIX, either on Windows)
+  const normalizedPath = projectPath.replace(/[\\/]$/, "");
   const projectName = path.basename(normalizedPath);
   const pathHash = crypto
     .createHash("sha1")
@@ -168,28 +170,32 @@ export function execInteractive(
 
 export function getOtherSessionCount(
   containerName: string,
-  projectName: string
+  _projectName: string
 ): number {
-  const result = spawnSync("ps", ["ax", "-o", "command="], {
-    encoding: "utf-8",
-  });
+  // Count bash processes still running inside the container. PID 1 is `sleep
+  // infinity`; each `docker exec -it ... /bin/bash` adds another bash. By the
+  // time this runs, our own session's bash has already exited, so any bash
+  // still present is another attached terminal.
+  //
+  // Uses `docker top` (POSIX `ps` invoked through the daemon) so it works on
+  // Linux, macOS, and Windows hosts — the host's process table is irrelevant.
+  // `docker top` requires a PID column in the ps output, so we ask for `pid,comm`
+  // and read the second column.
+  const result = spawnSync(
+    "docker",
+    ["top", containerName, "-eo", "pid,comm"],
+    { encoding: "utf-8" }
+  );
   if (result.status !== 0) return 0;
 
   const lines = result.stdout.split("\n");
   let count = 0;
-
-  for (const line of lines) {
-    const hasDockerExec = line.includes("docker exec");
-    const hasIt = line.includes("-it");
-    const hasContainerName = line.includes(containerName);
-    const hasBash = line.includes("/bin/bash");
-    const hasWorkdir = line.includes(`-w /root/${projectName}`);
-
-    if (hasDockerExec && hasIt && hasContainerName && hasBash && hasWorkdir) {
-      count++;
-    }
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].trim().split(/\s+/);
+    if (cols.length < 2) continue;
+    const comm = cols[1];
+    if (comm === "bash" || comm === "/bin/bash") count++;
   }
-
   return count;
 }
 

@@ -13,11 +13,11 @@
     "Dockerfile.User"
   ],
   "scripts": {
-    "build": "tsc && chmod u+x dist/main.js",
-    "clean": "rm -rf dist",
+    "build": "tsc && node scripts/postbuild.js",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "start": "node dist/main.js",
     "postinstall": "node scripts/postinstall.js",
-    "install-local": "bash scripts/install-local.sh",
+    "install-local": "node scripts/install-local.js",
     "publish-latest": "npm run clean && npm run build && npm publish",
     "publish-nightly": "npm run clean && npm run build && npm publish --tag nightly"
   },

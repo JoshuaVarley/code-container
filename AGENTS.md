@@ -36,5 +36,5 @@ If your user is a developer, proceed like normal.
 
 ## Requirements
 
-- Docker (Desktop or Engine)
-- POSIX system (Linux, macOS, WSL)
+- Docker (Desktop or Engine). On Windows, must be in **Linux container** mode (the default).
+- Operating system: Linux, macOS, or Windows. WSL2 also supported. The CLI runs natively on each.

@@ -6,6 +6,10 @@ FROM ubuntu:24.04
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Mark the container as a sandbox so Claude Code (and other harnesses with similar
+# checks) will accept permissive modes while running as root.
+ENV IS_SANDBOX=1
+
 # Set timezone to America/New_York (EST)
 ENV TZ=America/New_York
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
@@ -46,8 +50,15 @@ RUN apt-get update \
 # Create python symlink pointing to python3
 RUN ln -sf /usr/bin/python3 /usr/bin/python
 
-# Install Claude Code globally via official installer
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Install Claude Code globally via official installer.
+# The installer places the binary at ~/.claude/local/<ver>/claude with a symlink at
+# ~/.local/bin/claude. At runtime the core mount overlays /root/.claude from the host,
+# which would hide that binary and break the symlink — so we resolve and copy the
+# real binary to /usr/local/bin/claude where the mount can't shadow it.
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && CLAUDE_BIN="$(readlink -f /root/.local/bin/claude)" \
+    && [ -x "$CLAUDE_BIN" ] || { echo "claude binary not found after install" >&2; exit 1; } \
+    && install -m 0755 "$CLAUDE_BIN" /usr/local/bin/claude
 RUN echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
 # Install Opencode
@@ -70,6 +81,11 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && ln -sf "$DOTNET_ROOT/dotnet" /usr/local/bin/dotnet \
     && rm /tmp/dotnet-install.sh
 ENV PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
+
+# Install the .NET Aspire CLI directly into /usr/local/bin so it's on PATH for every
+# shell (interactive or not) without relying on bashrc. The installer's default of
+# ~/.aspire/bin would otherwise need shell-rc PATH setup.
+RUN curl -sSL https://aspire.dev/install.sh | bash -s -- --install-path /usr/local/bin
 
 # Install zvm (Zig Version Manager — https://github.com/tristanisham/zvm).
 # Users pick a Zig/ZLS version at runtime inside the container, e.g.:

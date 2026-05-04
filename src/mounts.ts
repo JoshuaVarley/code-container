@@ -1,20 +1,22 @@
 import * as fs from "fs";
 import * as os from "os";
+import * as path from "path";
 import { CONFIGS_DIR, MOUNTS_PATH, ensureAppdataDir } from "./config";
 import { printInfo, promptYesNo } from "./utils";
+import { bindMount } from "./paths";
 
 function getCoreMounts(): string[] {
   const home = os.homedir();
   return [
-    `${CONFIGS_DIR}/.claude:/root/.claude`,
-    `${CONFIGS_DIR}/.claude.json:/root/.claude.json`,
-    `${CONFIGS_DIR}/.codex:/root/.codex`,
-    `${CONFIGS_DIR}/.copilot:/root/.copilot`,
-    `${CONFIGS_DIR}/.opencode:/root/.config/opencode`,
-    `${CONFIGS_DIR}/.gemini:/root/.gemini`,
-    `${CONFIGS_DIR}/.local/share:/root/.local/share`,
-    `${CONFIGS_DIR}/.local/state:/root/.local/state`,
-    `${home}/.gitconfig:/root/.gitconfig:ro`,
+    bindMount(path.join(CONFIGS_DIR, ".claude"), "/root/.claude"),
+    bindMount(path.join(CONFIGS_DIR, ".claude.json"), "/root/.claude.json"),
+    bindMount(path.join(CONFIGS_DIR, ".codex"), "/root/.codex"),
+    bindMount(path.join(CONFIGS_DIR, ".copilot"), "/root/.copilot"),
+    bindMount(path.join(CONFIGS_DIR, ".opencode"), "/root/.config/opencode"),
+    bindMount(path.join(CONFIGS_DIR, ".gemini"), "/root/.gemini"),
+    bindMount(path.join(CONFIGS_DIR, ".local", "share"), "/root/.local/share"),
+    bindMount(path.join(CONFIGS_DIR, ".local", "state"), "/root/.local/state"),
+    bindMount(path.join(home, ".gitconfig"), "/root/.gitconfig", "ro"),
   ];
 }
 
@@ -43,7 +45,7 @@ export async function ensureMountsFile(): Promise<void> {
 
   const mountSsh = await promptYesNo("Mount ~/.ssh?");
   if (mountSsh) {
-    mounts.push(`${home}/.ssh:/root/.ssh:ro`);
+    mounts.push(bindMount(path.join(home, ".ssh"), "/root/.ssh", "ro"));
   }
 
   fs.writeFileSync(MOUNTS_PATH, mounts.join("\n") + "\n", { mode: 0o600 });
@@ -61,7 +63,11 @@ export function loadMounts(): string[] {
     const extraMounts = content
       .split("\n")
       .map(line => line.trim())
-      .filter(line => line && !line.startsWith("#"));
+      .filter(line => line && !line.startsWith("#"))
+      // On Windows, defensively rewrite backslashes to forward slashes so a
+      // user-edited line like `C:\Users\foo:/dest` still works. On POSIX this
+      // is a no-op because mount lines don't legitimately contain backslashes.
+      .map(line => process.platform === "win32" ? line.replace(/\\/g, "/") : line);
     for (const mount of extraMounts) {
       mountSet.add(mount);
     }

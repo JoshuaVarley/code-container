@@ -33,13 +33,14 @@ Add the following properties:
 ```json
 {
   "permissions": {
-    "allow": [
-      "*",
-      "Bash"
-    ]
+    "defaultMode": "bypassPermissions"
   }
 }
 ```
+
+`defaultMode: "bypassPermissions"` skips every permission prompt — covers all current tools and any tools added in future Claude Code releases, so it doesn't drift the way an explicit `allow` list does.
+
+Note: Claude Code refuses to run with bypass-permissions as UID 0 unless `IS_SANDBOX=1` is set in the environment. The base `Dockerfile` already sets this, so the setting works out of the box inside `container`. If you're applying this config outside a container as root, you must set `IS_SANDBOX=1` yourself.
 
 ## Gemini CLI
 
