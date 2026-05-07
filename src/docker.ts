@@ -17,9 +17,25 @@ const CONTAINER_PREFIX = "container";
 
 export function checkDocker(): void {
   const result = spawnSync("docker", ["info"], { stdio: "pipe" });
-  if (result.status !== 0) {
+  if (result.status === null && (result.error as NodeJS.ErrnoException)?.code === "ENOENT") {
     printError(
-      "Docker is not available. Please install Docker: https://docs.docker.com/get-docker/"
+      "Docker CLI not found on PATH. Install Docker (https://docs.docker.com/get-docker/) " +
+        "or, if using Podman, install the podman-docker shim."
+    );
+    process.exit(1);
+  }
+  if (result.status !== 0) {
+    const stderr = result.stderr?.toString().trim();
+    const stdout = result.stdout?.toString().trim();
+    printError("`docker info` failed — the Docker CLI cannot reach a daemon.");
+    if (stderr) console.error(stderr);
+    else if (stdout) console.error(stdout);
+    console.error(
+      "\nIf you are using Podman, point the docker CLI at Podman's socket. For example:\n" +
+        "  - Linux/macOS:  export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock\n" +
+        "  - Windows:      $env:DOCKER_HOST = 'npipe:////./pipe/podman-machine-default'\n" +
+        "  - Or switch context: `docker context use <podman-context>`\n" +
+        "Then re-run the command."
     );
     process.exit(1);
   }
@@ -69,13 +85,16 @@ export function ensureDockerfile(): void {
   }
 }
 
-export function buildImageRaw(): boolean {
+export type BuildStage = "base" | "user";
+export type BuildResult = { ok: true } | { ok: false; stage: BuildStage };
+
+export function buildImageRaw(): BuildResult {
   const baseResult = spawnSync(
     "docker",
     ["build", "--no-cache", "-t", `${BASE_IMAGE}:${IMAGE_TAG}`, "-f", PACKAGED_DOCKERFILE, APPDATA_DIR],
     { stdio: "inherit" }
   );
-  if (baseResult.status !== 0) return false;
+  if (baseResult.status !== 0) return { ok: false, stage: "base" };
 
   ensureDockerfile();
 
@@ -84,7 +103,7 @@ export function buildImageRaw(): boolean {
     ["build", "--no-cache", "-f", USER_DOCKERFILE_PATH, "-t", `${IMAGE_NAME}:${IMAGE_TAG}`, APPDATA_DIR],
     { stdio: "inherit" }
   );
-  return userResult.status === 0;
+  return userResult.status === 0 ? { ok: true } : { ok: false, stage: "user" };
 }
 
 export function containerExists(containerName: string): boolean {

@@ -34,8 +34,38 @@ import {
 
 export function buildImage(): void {
   printInfo(`Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}`);
-  if (!buildImageRaw()) {
-    printError("Failed to build Docker image");
+  const result = buildImageRaw();
+  if (!result.ok) {
+    const stageLabel =
+      result.stage === "base"
+        ? "base image (packaged Dockerfile)"
+        : "user image (~/.code-container/Dockerfile.User)";
+    printError(
+      `Failed to build Docker image at the ${stageLabel} stage. ` +
+        `See the build output above for the underlying error.`
+    );
+    const hints: string[] = [
+      "BuildKit/buildx incompatibility (often Podman + buildx 'docker-container' driver,",
+      "    e.g. 'OCI permission denied' on /sys/fs/cgroup): disable BuildKit and retry —",
+      "      PowerShell:  $env:DOCKER_BUILDKIT = '0'; container",
+      "      bash/zsh:    DOCKER_BUILDKIT=0 container",
+      "    Or switch buildx driver: `docker buildx create --use --driver=docker`.",
+      "Daemon not reachable / wrong context: check `docker info` and `docker context ls`.",
+      "    For Podman, point DOCKER_HOST at the Podman socket/pipe.",
+      "Network failure pulling base images: re-run after checking connectivity, proxy,",
+      "    or registry auth (`docker login`).",
+      "Out of disk space: `docker system df` and `docker system prune` if appropriate.",
+    ];
+    if (result.stage === "user") {
+      hints.push(
+        "Custom Dockerfile.User error: inspect and edit ~/.code-container/Dockerfile.User."
+      );
+    }
+    console.error(
+      "\nCommon causes and things you can try:\n  - " +
+        hints.join("\n  - ") +
+        "\nRe-run `container` once you've addressed the underlying cause."
+    );
     process.exit(1);
   }
   printSuccess("Docker image built successfully");

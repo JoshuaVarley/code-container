@@ -2,7 +2,7 @@
 /**
  * Cross-platform installer: removes any globally installed copy of this package,
  * builds the local fork, links it as the global `container` command, and seeds
- * the persistent zvm-versions mount in MOUNTS.txt.
+ * the persistent toolchain-home mounts in MOUNTS.txt (zvm, cargo, rustup).
  *
  * Runs on Linux, macOS, and Windows (PowerShell or cmd) — uses Node APIs only,
  * no shell required.
@@ -88,33 +88,96 @@ run("npm", ["run", "build"]);
 step("Linking local copy as global `container`");
 run("npm", ["link"]);
 
-step("Configuring persistent zvm versions mount");
+step("Configuring persistent toolchain-home mounts");
 const APPDATA_DIR = path.join(os.homedir(), ".code-container");
-const ZVM_HOST_DIR = path.join(APPDATA_DIR, "zvm-versions");
 const MOUNTS_FILE = path.join(APPDATA_DIR, "MOUNTS.txt");
 
-// The mount line written into MOUNTS.txt uses forward slashes — that's what the
-// Docker mount parser expects, and the runtime mounts.ts produces the same form
-// via dockerHostPath(). On Windows this becomes e.g. "C:/Users/foo/...".
-const ZVM_HOST_DIR_FOR_MOUNT = ZVM_HOST_DIR.replace(/\\/g, "/");
-const MOUNT_LINE = `${ZVM_HOST_DIR_FOR_MOUNT}:/root/.zvm/versions`;
+// Mount lines in MOUNTS.txt use forward slashes — that's what Docker's mount
+// parser expects, and the runtime mounts.ts produces the same form via
+// dockerHostPath(). On Windows this becomes e.g. "C:/Users/foo/...".
+const toForwardSlashes = p => p.replace(/\\/g, "/");
 
-fs.mkdirSync(ZVM_HOST_DIR, { recursive: true });
+// Each entry binds an entire toolchain "home" directory from the host into the
+// container. The image's entrypoint re-seeds these from /opt/<tool>-template/
+// when the host mount is empty (first run or wiped), so the bind isn't shadowing
+// a useful default — it becomes one. Add a new tool by adding a new entry.
+const PERSISTENT_MOUNTS = [
+  {
+    hostSubdir: "zvm-home",
+    containerPath: "/root/.zvm",
+    comment: "zvm: persist Zig versions and the zvm binary itself across containers (whole $ZVM_PATH)",
+  },
+  {
+    hostSubdir: "cargo-home",
+    containerPath: "/root/.cargo",
+    comment: "cargo: persist registry cache, `cargo install` binaries, and credentials ($CARGO_HOME)",
+  },
+  {
+    hostSubdir: "rustup-home",
+    containerPath: "/root/.rustup",
+    comment: "rustup: persist installed Rust toolchains and components like rust-analyzer ($RUSTUP_HOME)",
+  },
+];
+
+// Stale lines from earlier (broken) layouts that should be scrubbed. Keep in
+// sync as the schema evolves so existing users don't end up with dead mounts.
+const STALE_LINES = new Set([
+  // The original zvm mount targeted /root/.zvm/versions, but zvm installs
+  // versions at $ZVM_PATH/<version>/ directly — so the bind never captured
+  // anything. The companion comment is also dropped.
+  `${toForwardSlashes(path.join(APPDATA_DIR, "zvm-versions"))}:/root/.zvm/versions`,
+  "# zvm: persist installed Zig versions across containers",
+]);
+
 if (!fs.existsSync(MOUNTS_FILE)) {
   fs.writeFileSync(MOUNTS_FILE, "");
 }
 
-const existingLines = fs.readFileSync(MOUNTS_FILE, "utf8").split(/\r?\n/);
-if (existingLines.some(line => line.trim() === MOUNT_LINE)) {
-  console.log(`    zvm versions mount already present in ${MOUNTS_FILE}`);
-} else {
-  fs.appendFileSync(
-    MOUNTS_FILE,
-    `\n# zvm: persist installed Zig versions across containers\n${MOUNT_LINE}\n`
-  );
-  console.log(`    Added zvm versions mount: ${MOUNT_LINE}`);
-  console.log(`    Host dir: ${ZVM_HOST_DIR}`);
-  console.log("    Note: existing containers must be `container remove`d for the mount to take effect.");
+const originalLines = fs.readFileSync(MOUNTS_FILE, "utf8").split(/\r?\n/);
+const cleanedLines = [];
+const removedStale = [];
+for (const line of originalLines) {
+  const trimmed = line.trim();
+  if (STALE_LINES.has(trimmed)) {
+    removedStale.push(trimmed);
+    continue;
+  }
+  cleanedLines.push(line);
+}
+
+let body = cleanedLines.join("\n").replace(/\n+$/, "");
+let bodyChanged = removedStale.length > 0;
+
+for (const entry of PERSISTENT_MOUNTS) {
+  const hostDir = path.join(APPDATA_DIR, entry.hostSubdir);
+  const mountLine = `${toForwardSlashes(hostDir)}:${entry.containerPath}`;
+  fs.mkdirSync(hostDir, { recursive: true });
+
+  const alreadyPresent = cleanedLines.some(line => line.trim() === mountLine);
+  if (alreadyPresent) {
+    console.log(`    ${entry.hostSubdir} mount already present`);
+    continue;
+  }
+
+  if (body.length > 0 && !body.endsWith("\n")) body += "\n";
+  body += `\n# ${entry.comment}\n${mountLine}\n`;
+  bodyChanged = true;
+  console.log(`    Added ${entry.hostSubdir} mount: ${mountLine}`);
+  console.log(`    Host dir: ${hostDir}`);
+}
+
+if (removedStale.length > 0) {
+  console.log("    Scrubbed stale mount line(s) from previous layouts:");
+  for (const line of removedStale) console.log(`      ${line}`);
+  const orphan = path.join(APPDATA_DIR, "zvm-versions");
+  if (fs.existsSync(orphan)) {
+    console.log(`    (host dir ${orphan} can be deleted — it was always empty)`);
+  }
+}
+
+if (bodyChanged) {
+  fs.writeFileSync(MOUNTS_FILE, body);
+  console.log("    Note: existing containers must be `container remove`d for changes to take effect.");
 }
 
 console.log();
