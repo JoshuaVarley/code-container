@@ -10,31 +10,30 @@ import { bindMount } from "./paths";
 
 export const IMAGE_NAME = "code-container";
 export const IMAGE_TAG = "latest";
-export const BASE_IMAGE = "code-container-base";
 const PACKAGED_DOCKERFILE = path.resolve(__dirname, "..", "Dockerfile");
 const PACKAGED_USER_DOCKERFILE = path.resolve(__dirname, "..", "Dockerfile.User");
 const CONTAINER_PREFIX = "container";
+const CLI = "podman";
 
-export function checkDocker(): void {
-  const result = spawnSync("docker", ["info"], { stdio: "pipe" });
+export function checkPodman(): void {
+  const result = spawnSync(CLI, ["info"], { stdio: "pipe" });
   if (result.status === null && (result.error as NodeJS.ErrnoException)?.code === "ENOENT") {
     printError(
-      "Docker CLI not found on PATH. Install Docker (https://docs.docker.com/get-docker/) " +
-        "or, if using Podman, install the podman-docker shim."
+      "Podman CLI not found on PATH. Install Podman: https://podman.io/docs/installation"
     );
     process.exit(1);
   }
   if (result.status !== 0) {
     const stderr = result.stderr?.toString().trim();
     const stdout = result.stdout?.toString().trim();
-    printError("`docker info` failed — the Docker CLI cannot reach a daemon.");
+    printError("`podman info` failed — Podman cannot reach a running machine/daemon.");
     if (stderr) console.error(stderr);
     else if (stdout) console.error(stdout);
     console.error(
-      "\nIf you are using Podman, point the docker CLI at Podman's socket. For example:\n" +
-        "  - Linux/macOS:  export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock\n" +
-        "  - Windows:      $env:DOCKER_HOST = 'npipe:////./pipe/podman-machine-default'\n" +
-        "  - Or switch context: `docker context use <podman-context>`\n" +
+      "\nThings to try:\n" +
+        "  - macOS/Windows: start the Podman machine: `podman machine start`\n" +
+        "  - Linux:         ensure rootless Podman is set up (`podman info` from your shell).\n" +
+        "  - Wrong context: `podman system connection list` to verify the active connection.\n" +
         "Then re-run the command."
     );
     process.exit(1);
@@ -63,7 +62,7 @@ export function generateContainerName(projectPath: string): string {
 
 export function imageExists(): boolean {
   const result = spawnSync(
-    "docker",
+    CLI,
     ["image", "inspect", `${IMAGE_NAME}:${IMAGE_TAG}`],
     { stdio: "pipe" }
   );
@@ -85,29 +84,51 @@ export function ensureDockerfile(): void {
   }
 }
 
-export type BuildStage = "base" | "user";
-export type BuildResult = { ok: true } | { ok: false; stage: BuildStage };
+export type BuildResult = { ok: true } | { ok: false };
+
+// Inlines the user's Dockerfile.User on top of the base Dockerfile, stripping
+// the user's `FROM code-container-base[:tag]` line. We build a single combined
+// Dockerfile rather than two separate images so we don't have to share an
+// intermediate base image between build invocations.
+export function combineDockerfiles(baseContent: string, userContent: string): string {
+  const strippedUser = userContent
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*FROM\s+code-container-base(\s|:|$)/i.test(line))
+    .join("\n");
+  return (
+    baseContent.replace(/\s+$/, "") +
+    "\n\n# === User customizations (~/.code-container/Dockerfile.User) ===\n" +
+    strippedUser
+  );
+}
 
 export function buildImageRaw(): BuildResult {
-  const baseResult = spawnSync(
-    "docker",
-    ["build", "--no-cache", "-t", `${BASE_IMAGE}:${IMAGE_TAG}`, "-f", PACKAGED_DOCKERFILE, APPDATA_DIR],
-    { stdio: "inherit" }
-  );
-  if (baseResult.status !== 0) return { ok: false, stage: "base" };
-
   ensureDockerfile();
+  const baseContent = fs.readFileSync(PACKAGED_DOCKERFILE, "utf-8");
+  const userContent = fs.readFileSync(USER_DOCKERFILE_PATH, "utf-8");
+  const combined = combineDockerfiles(baseContent, userContent);
 
-  const userResult = spawnSync(
-    "docker",
-    ["build", "--no-cache", "-f", USER_DOCKERFILE_PATH, "-t", `${IMAGE_NAME}:${IMAGE_TAG}`, APPDATA_DIR],
-    { stdio: "inherit" }
-  );
-  return userResult.status === 0 ? { ok: true } : { ok: false, stage: "user" };
+  // Write the combined Dockerfile to a real file inside the build context
+  // rather than piping via `-f -`. Stdin-Dockerfile doesn't work reliably on
+  // Windows-hosted Podman (WSL2-backed machine): the stdin pipe isn't always
+  // passed through to the engine, which then falls back to looking for a
+  // literal `Dockerfile` in the context dir and errors out.
+  const combinedPath = path.join(APPDATA_DIR, `.code-container-build-${process.pid}.Dockerfile`);
+  fs.writeFileSync(combinedPath, combined);
+  try {
+    const result = spawnSync(
+      CLI,
+      ["build", "--no-cache", "-f", combinedPath, "-t", `${IMAGE_NAME}:${IMAGE_TAG}`, APPDATA_DIR],
+      { stdio: "inherit" }
+    );
+    return result.status === 0 ? { ok: true } : { ok: false };
+  } finally {
+    try { fs.unlinkSync(combinedPath); } catch { /* best-effort cleanup */ }
+  }
 }
 
 export function containerExists(containerName: string): boolean {
-  const result = spawnSync("docker", ["container", "inspect", containerName], {
+  const result = spawnSync(CLI, ["container", "inspect", containerName], {
     stdio: "pipe",
   });
   return result.status === 0;
@@ -115,7 +136,7 @@ export function containerExists(containerName: string): boolean {
 
 export function containerRunning(containerName: string): boolean {
   const result = spawnSync(
-    "docker",
+    CLI,
     ["container", "inspect", "-f", "{{.State.Running}}", containerName],
     { stdio: "pipe" }
   );
@@ -123,15 +144,15 @@ export function containerRunning(containerName: string): boolean {
 }
 
 export function stopContainer(containerName: string): void {
-  spawnSync("docker", ["stop", "-t", "3", containerName], { stdio: "inherit" });
+  spawnSync(CLI, ["stop", "-t", "3", containerName], { stdio: "inherit" });
 }
 
 export function startContainer(containerName: string): void {
-  spawnSync("docker", ["start", containerName], { stdio: "inherit" });
+  spawnSync(CLI, ["start", containerName], { stdio: "inherit" });
 }
 
 export function removeContainer(containerName: string): void {
-  spawnSync("docker", ["rm", containerName], { stdio: "inherit" });
+  spawnSync(CLI, ["rm", containerName], { stdio: "inherit" });
 }
 
 export function createNewContainer(
@@ -159,7 +180,7 @@ export function createNewContainer(
 
   args.push(`${IMAGE_NAME}:${IMAGE_TAG}`, "sleep", "infinity");
 
-  const result = spawnSync("docker", args, { stdio: "inherit" });
+  const result = spawnSync(CLI, args, { stdio: "inherit" });
   return result.status === 0;
 }
 
@@ -169,7 +190,7 @@ export function execInteractive(
 ): void {
   const flags = loadFlags();
   spawnSync(
-    "docker",
+    CLI,
     [
       "exec",
       "-it",
@@ -192,16 +213,16 @@ export function getOtherSessionCount(
   _projectName: string
 ): number {
   // Count bash processes still running inside the container. PID 1 is `sleep
-  // infinity`; each `docker exec -it ... /bin/bash` adds another bash. By the
+  // infinity`; each `podman exec -it ... /bin/bash` adds another bash. By the
   // time this runs, our own session's bash has already exited, so any bash
   // still present is another attached terminal.
   //
-  // Uses `docker top` (POSIX `ps` invoked through the daemon) so it works on
+  // Uses `podman top` (POSIX `ps` invoked through the engine) so it works on
   // Linux, macOS, and Windows hosts — the host's process table is irrelevant.
-  // `docker top` requires a PID column in the ps output, so we ask for `pid,comm`
+  // `podman top` requires a PID column in the ps output, so we ask for `pid,comm`
   // and read the second column.
   const result = spawnSync(
-    "docker",
+    CLI,
     ["top", containerName, "-eo", "pid,comm"],
     { encoding: "utf-8" }
   );
@@ -234,7 +255,7 @@ export function stopContainerIfLastSession(
 
 export function listContainersRaw(): void {
   spawnSync(
-    "docker",
+    CLI,
     [
       "ps",
       "-a",
@@ -249,7 +270,7 @@ export function listContainersRaw(): void {
 
 export function getStoppedContainerIds(): string[] {
   const result = spawnSync(
-    "docker",
+    CLI,
     [
       "ps",
       "-a",
@@ -269,5 +290,5 @@ export function getStoppedContainerIds(): string[] {
 }
 
 export function removeContainersById(ids: string[]): void {
-  spawnSync("docker", ["rm", ...ids], { stdio: "inherit" });
+  spawnSync(CLI, ["rm", ...ids], { stdio: "inherit" });
 }

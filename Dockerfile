@@ -87,10 +87,9 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && rm /tmp/dotnet-install.sh
 ENV PATH="${DOTNET_ROOT}:${DOTNET_ROOT}/tools:${PATH}"
 
-# Install the .NET Aspire CLI directly into /usr/local/bin so it's on PATH for every
-# shell (interactive or not) without relying on bashrc. The installer's default of
-# ~/.aspire/bin would otherwise need shell-rc PATH setup.
-RUN curl -sSL https://aspire.dev/install.sh | bash -s -- --install-path /usr/local/bin
+# Install the .NET Aspire CLI as a dotnet global tool. Lands in
+# $DOTNET_ROOT/tools, which is already on PATH (see ENV above).
+RUN dotnet tool install Aspire.Cli --tool-path "${DOTNET_ROOT}/tools"
 
 # Install Rust via rustup, with the stable toolchain and the rust-analyzer
 # component (so editors/LSPs pick it up via `rustup which rust-analyzer`).

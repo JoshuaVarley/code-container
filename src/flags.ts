@@ -31,7 +31,7 @@ export function loadFlags(): string[] {
     }
 
     if (hasOperator) {
-      printError("Invalid Docker flag line: shell operators are not allowed.");
+      printError("Invalid podman flag line: shell operators are not allowed.");
       printError(`Argument skipped: ${line}`);
       continue;
     }
@@ -69,7 +69,7 @@ export function loadRunFlags(): string[] {
     }
 
     if (hasOperator) {
-      printError("Invalid Docker flag line: shell operators are not allowed.");
+      printError("Invalid podman flag line: shell operators are not allowed.");
       printError(`Argument skipped: ${line}`);
       continue;
     }

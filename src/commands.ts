@@ -33,34 +33,20 @@ import {
 } from "./config";
 
 export function buildImage(): void {
-  printInfo(`Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}`);
+  printInfo(`Building container image: ${IMAGE_NAME}:${IMAGE_TAG}`);
   const result = buildImageRaw();
   if (!result.ok) {
-    const stageLabel =
-      result.stage === "base"
-        ? "base image (packaged Dockerfile)"
-        : "user image (~/.code-container/Dockerfile.User)";
     printError(
-      `Failed to build Docker image at the ${stageLabel} stage. ` +
-        `See the build output above for the underlying error.`
+      "Failed to build container image. See the build output above for the underlying error."
     );
     const hints: string[] = [
-      "BuildKit/buildx incompatibility (often Podman + buildx 'docker-container' driver,",
-      "    e.g. 'OCI permission denied' on /sys/fs/cgroup): disable BuildKit and retry —",
-      "      PowerShell:  $env:DOCKER_BUILDKIT = '0'; container",
-      "      bash/zsh:    DOCKER_BUILDKIT=0 container",
-      "    Or switch buildx driver: `docker buildx create --use --driver=docker`.",
-      "Daemon not reachable / wrong context: check `docker info` and `docker context ls`.",
-      "    For Podman, point DOCKER_HOST at the Podman socket/pipe.",
+      "Custom Dockerfile.User error: inspect and edit ~/.code-container/Dockerfile.User.",
+      "Podman not reachable: `podman info` to check the active connection;",
+      "    on macOS/Windows ensure `podman machine start` has been run.",
       "Network failure pulling base images: re-run after checking connectivity, proxy,",
-      "    or registry auth (`docker login`).",
-      "Out of disk space: `docker system df` and `docker system prune` if appropriate.",
+      "    or registry auth (`podman login`).",
+      "Out of disk space: `podman system df` and `podman system prune` if appropriate.",
     ];
-    if (result.stage === "user") {
-      hints.push(
-        "Custom Dockerfile.User error: inspect and edit ~/.code-container/Dockerfile.User."
-      );
-    }
     console.error(
       "\nCommon causes and things you can try:\n  - " +
         hints.join("\n  - ") +
@@ -68,7 +54,7 @@ export function buildImage(): void {
     );
     process.exit(1);
   }
-  printSuccess("Docker image built successfully");
+  printSuccess("Container image built successfully");
 }
 
 export async function init(isStartup: boolean = false): Promise<void> {
@@ -131,7 +117,7 @@ export async function runContainer(projectPath: string, cliFlags: string[] = [])
   ensureConfigDir();
 
   if (!imageExists()) {
-    printWarning("Docker image not found. Building...");
+    printWarning("Container image not found. Building...");
     buildImage();
   }
 

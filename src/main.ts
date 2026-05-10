@@ -10,7 +10,7 @@ import {
   cleanContainers,
   init,
 } from "./commands";
-import { checkDocker } from "./docker";
+import { checkPodman } from "./docker";
 import { loadSettings, saveSettings } from "./config";
 import { ensureMountsFile } from "./mounts";
 
@@ -57,14 +57,14 @@ async function ensureTosAccepted(): Promise<boolean> {
 
 function usage(): void {
   console.log(`
-Usage: container [COMMAND] [PROJECT_PATH] [-- DOCKER_FLAGS...]
+Usage: container [COMMAND] [PROJECT_PATH] [-- PODMAN_FLAGS...]
 
 Manage Code containers for isolated project environments.
 
 Commands:
     (none)         Start container for current directory (default)
     run            Start container for specified project path
-    build          Build the Docker image
+    build          Build the container image
     init           Copy config files from home directory
     stop           Stop the container for this project
     remove         Remove the container for this project
@@ -73,14 +73,14 @@ Commands:
 
 Arguments:
     PROJECT_PATH    Path to the project directory (defaults to current directory)
-    DOCKER_FLAGS    Additional flags passed to 'docker run' after '--'
+    PODMAN_FLAGS    Additional flags passed to 'podman run' after '--'
 
 Examples:
     container                           # Start container for current directory
     container run /path/to/project      # Start container for specific project
-    container run /path -- -p 8080:80   # Pass Docker flags for port mapping
+    container run /path -- -p 8080:80   # Pass podman flags for port mapping
     container run -- -e FOO=bar         # Pass env vars (uses current directory)
-    container build                     # Build Docker image
+    container build                     # Build container image
     container init                      # Copy config files
     container stop                      # Stop container for current directory
     container remove /path/to/project   # Remove container for specific project
@@ -149,7 +149,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  checkDocker();
+  checkPodman();
   await init(true);
   const resolvedPath = resolveProjectPath(projectPath);
 
